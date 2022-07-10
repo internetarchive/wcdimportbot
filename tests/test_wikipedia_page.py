@@ -6,9 +6,9 @@ from unittest import TestCase
 import pytest
 
 import config
-from src.helpers import console
-from src.models.wikibase.sandbox_wikibase import SandboxWikibase
-from src.models.wikimedia.enums import WikimediaSite
+from wcdimportbot.helpers import console
+from wcdimportbot.models.wikibase.sandbox_wikibase import SandboxWikibase
+from wcdimportbot.models.wikimedia.enums import WikimediaSite
 
 logging.basicConfig(level=config.loglevel)
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ class TestWikipediaPage(TestCase):
     pass
 
     def test_fix_dash(self):
-        from src.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
+        from wcdimportbot.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
 
         page = WikipediaPage(
             wikibase=SandboxWikibase(),
@@ -69,7 +69,7 @@ class TestWikipediaPage(TestCase):
                     console.print(ref.url, ref.archive_url)
 
     def test_fetch_page_data_and_parse_the_wikitext(self):
-        from src.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
+        from wcdimportbot.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
 
         page = WikipediaPage(
             wikibase=SandboxWikibase(),
@@ -82,7 +82,7 @@ class TestWikipediaPage(TestCase):
 
     @pytest.mark.xfail(bool(getenv("CI")), reason="GitHub Actions do not have logins")
     def test_get_wcdqid_from_hash_via_sparql(self):
-        from src.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
+        from wcdimportbot.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
 
         page = WikipediaPage(
             wikibase=SandboxWikibase(),

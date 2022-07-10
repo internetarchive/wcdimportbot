@@ -1,8 +1,8 @@
 from unittest import TestCase
 
 from src import SandboxWikibase, console
-from src.helpers.template_extraction import extract_templates_and_params
-from src.models.wikimedia.wikipedia.templates.google_books import (
+from wcdimportbot.helpers.template_extraction import extract_templates_and_params
+from wcdimportbot.models.wikimedia.wikipedia.templates.google_books import (
     GoogleBooks,
     GoogleBooksSchema,
 )

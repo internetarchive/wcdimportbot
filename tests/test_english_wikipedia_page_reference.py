@@ -2,14 +2,14 @@ import logging
 from unittest import TestCase
 
 import config
-from src.helpers import console
-from src.models.exceptions import MoreThanOneNumberError
-from src.models.wikibase.sandbox_wikibase import SandboxWikibase
-from src.models.wikimedia.wikipedia.templates.english_wikipedia_page_reference import (
+from wcdimportbot.helpers import console
+from wcdimportbot.models.exceptions import MoreThanOneNumberError
+from wcdimportbot.models.wikibase.sandbox_wikibase import SandboxWikibase
+from wcdimportbot.models.wikimedia.wikipedia.templates.english_wikipedia_page_reference import (
     EnglishWikipediaPageReference,
     EnglishWikipediaPageReferenceSchema,
 )
-from src.models.wikimedia.wikipedia.templates.google_books import GoogleBooks
+from wcdimportbot.models.wikimedia.wikipedia.templates.google_books import GoogleBooks
 
 logging.basicConfig(level=config.loglevel)
 logger = logging.getLogger(__name__)
@@ -201,7 +201,7 @@ class TestEnglishWikipediaPageReferenceSchema(TestCase):
         assert reference.location == "Stockholm"
 
     def test_detect_archive_urls(self):
-        from src.models.wikibase.enums import KnownArchiveUrl
+        from wcdimportbot.models.wikibase.enums import KnownArchiveUrl
 
         reference = EnglishWikipediaPageReference(
             wikibase=SandboxWikibase(),

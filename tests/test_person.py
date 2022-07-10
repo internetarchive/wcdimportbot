@@ -1,7 +1,7 @@
 from unittest import TestCase
 
-from src.models.person import Person
-from src.models.wikimedia.wikipedia.templates.enums import (
+from wcdimportbot.models.person import Person
+from wcdimportbot.models.wikimedia.wikipedia.templates.enums import (
     EnglishWikipediaTemplatePersonRole,
     WikipediaTemplatePersonRole,
 )

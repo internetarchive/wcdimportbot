@@ -23,8 +23,8 @@ from wikibaseintegrator.wbi_exceptions import MWApiError  # type: ignore
 
 import config
 from src import Wikibase, console
-from src.models.wikibase.crud import WikibaseCrud
-from src.models.wikibase.dictionaries import (
+from wcdimportbot.models.wikibase.crud import WikibaseCrud
+from wcdimportbot.models.wikibase.dictionaries import (
     wcd_archive_items,
     wcd_externalid_properties,
     wcd_item_properties,
@@ -34,7 +34,7 @@ from src.models.wikibase.dictionaries import (
     wcd_time_properties,
     wcd_url_properties,
 )
-from src.models.wikibase.sandbox_wikibase import SandboxWikibase
+from wcdimportbot.models.wikibase.sandbox_wikibase import SandboxWikibase
 
 logging.basicConfig(level=config.loglevel)
 logger = logging.getLogger(__name__)

@@ -6,9 +6,9 @@ from wikibaseintegrator.wbi_exceptions import NonExistentEntityError  # type: ig
 
 import config
 from src import WcdImportBot
-from src.helpers import console
-from src.models.wikibase.crud.read import WikibaseCrudRead
-from src.models.wikibase.sandbox_wikibase import SandboxWikibase
+from wcdimportbot.helpers import console
+from wcdimportbot.models.wikibase.crud.read import WikibaseCrudRead
+from wcdimportbot.models.wikibase.sandbox_wikibase import SandboxWikibase
 
 logging.basicConfig(level=config.loglevel)
 logger = logging.getLogger(__name__)

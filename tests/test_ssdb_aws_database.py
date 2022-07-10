@@ -1,7 +1,7 @@
 # from unittest import TestCase
 #
 # import config
-# from src.models.ssdb_database import SsdbDatabase
+# from wcdimportbot.models.ssdb_database import SsdbDatabase
 #
 #
 # class TestSsdbAwsDatabase(TestCase):

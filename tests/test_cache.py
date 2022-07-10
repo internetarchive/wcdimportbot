@@ -2,7 +2,7 @@ import logging
 from unittest import TestCase
 
 import config
-from src.models.cache import Cache
+from wcdimportbot.models.cache import Cache
 
 logging.basicConfig(level=config.loglevel)
 logger = logging.getLogger(__name__)

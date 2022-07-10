@@ -14,18 +14,18 @@ from wikibaseintegrator.wbi_exceptions import MWApiError  # type: ignore
 
 import config
 from src import WcdImportBot
-from src.helpers import console
-from src.models.wikibase.crud import WikibaseCrud
-from src.models.wikibase.crud.create import WikibaseCrudCreate
-from src.models.wikibase.crud.delete import WikibaseCrudDelete
-from src.models.wikibase.crud.read import WikibaseCrudRead
-from src.models.wikibase.sandbox_wikibase import SandboxWikibase
-from src.models.wikimedia.wikipedia.templates.english_wikipedia_page_reference import (
+from wcdimportbot.helpers import console
+from wcdimportbot.models.wikibase.crud import WikibaseCrud
+from wcdimportbot.models.wikibase.crud.create import WikibaseCrudCreate
+from wcdimportbot.models.wikibase.crud.delete import WikibaseCrudDelete
+from wcdimportbot.models.wikibase.crud.read import WikibaseCrudRead
+from wcdimportbot.models.wikibase.sandbox_wikibase import SandboxWikibase
+from wcdimportbot.models.wikimedia.wikipedia.templates.english_wikipedia_page_reference import (
     EnglishWikipediaPageReference,
 )
 
 if TYPE_CHECKING:
-    from src.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
+    from wcdimportbot.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
 
 logging.basicConfig(level=config.loglevel)
 logger = logging.getLogger(__name__)
@@ -393,7 +393,7 @@ class TestWikiCitations(TestCase):
         reference = EnglishWikipediaPageReference(**data)
         reference.finish_parsing_and_generate_hash()
         wc = WikibaseCrudCreate(wikibase=SandboxWikibase())
-        from src.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
+        from wcdimportbot.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
 
         wppage = WikipediaPage(wikibase=SandboxWikibase())
         title = "Test"
@@ -419,7 +419,7 @@ class TestWikiCitations(TestCase):
         reference.wikibase = SandboxWikibase()
         reference.finish_parsing_and_generate_hash()
         wc = WikibaseCrudCreate(wikibase=SandboxWikibase())
-        from src.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
+        from wcdimportbot.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
 
         wppage = WikipediaPage(wikibase=SandboxWikibase())
         title = "Test"
@@ -440,7 +440,7 @@ class TestWikiCitations(TestCase):
         reference.wikibase = SandboxWikibase()
         reference.finish_parsing_and_generate_hash()
         wc = WikibaseCrudCreate(wikibase=SandboxWikibase())
-        from src.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
+        from wcdimportbot.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
 
         wppage = WikipediaPage(wikibase=SandboxWikibase())
         title = "Test"
@@ -462,7 +462,7 @@ class TestWikiCitations(TestCase):
         reference.wikibase = SandboxWikibase()
         reference.finish_parsing_and_generate_hash()
         wc = WikibaseCrudCreate(wikibase=SandboxWikibase())
-        from src.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
+        from wcdimportbot.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
 
         wppage = WikipediaPage(wikibase=SandboxWikibase())
         title = "Test"
@@ -484,7 +484,7 @@ class TestWikiCitations(TestCase):
         reference.wikibase = SandboxWikibase()
         reference.finish_parsing_and_generate_hash()
         wc = WikibaseCrudCreate(wikibase=SandboxWikibase())
-        from src.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
+        from wcdimportbot.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
 
         wppage = WikipediaPage(wikibase=SandboxWikibase())
         title = "Test"

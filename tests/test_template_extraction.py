@@ -1,7 +1,7 @@
 from collections import OrderedDict
 from unittest import TestCase
 
-from src.helpers.template_extraction import (
+from wcdimportbot.helpers.template_extraction import (
     extract_templates_and_params,
     remove_comments,
 )
