@@ -4,7 +4,7 @@ import logging
 import textwrap
 from datetime import datetime, timezone
 from time import sleep
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple
 
 from pydantic import validate_arguments
 from wikibaseintegrator import (  # type: ignore
@@ -31,7 +31,6 @@ import config
 from src.models.exceptions import MissingInformationError
 from src.models.person import Person
 from src.models.wikibase import Wikibase
-from src.models.wikibase.crud.create import WikibaseCrudCreate
 from src.models.wikibase.wikibase_return import WikibaseReturn
 from src.models.wikimedia.wikipedia.templates.wikipedia_page_reference import (
     WikipediaPageReference,
@@ -81,6 +80,24 @@ class WikibaseCrud(WcdBaseModel):
                 if item_id := self.__extract_wcdqs_json_entity_id__(data=binding):
                     yielded += 1
                     yield item_id
+            if number_of_bindings := len(sparql_result["results"]["bindings"]):
+                logger.info(f"Yielded {yielded} bindings out of {number_of_bindings}")
+
+    @validate_arguments
+    def __extract_item_ids_and_hashes__(
+        self, sparql_result: Optional[Dict]
+    ) -> Iterable[Tuple[str, str]]:
+        """Yield item ids and hashes from a sparql result"""
+        logger.debug("__extract_item_ids_and_hashes__: Running")
+        if sparql_result:
+            yielded = 0
+            for binding in sparql_result["results"]["bindings"]:
+                if item_id := self.__extract_wcdqs_json_entity_id__(data=binding):
+                    if hash_value := self.__extract_wcdqs_json_entity_id__(
+                        data=binding, sparql_variable="hash"
+                    ):
+                        yielded += 1
+                        yield item_id, hash_value
             if number_of_bindings := len(sparql_result["results"]["bindings"]):
                 logger.info(f"Yielded {yielded} bindings out of {number_of_bindings}")
 
@@ -176,15 +193,21 @@ class WikibaseCrud(WcdBaseModel):
         self,
         page_reference: WikipediaPageReference,
         wikipedia_page,  # type: WikipediaPage
+        testing: bool = False,
     ) -> ItemEntity:
         """This method converts a page_reference into a new reference item"""
-        self.__setup_wikibase_integrator_configuration__()
-        logger.debug(f"Trying to log in to the Wikibase as {self.wikibase.user_name}")
-        wbi = WikibaseIntegrator(
-            login=wbi_login.Login(
-                user=self.wikibase.user_name, password=self.wikibase.botpassword
-            ),
-        )
+        if testing:
+            wbi = WikibaseIntegrator()
+        else:
+            self.__setup_wikibase_integrator_configuration__()
+            logger.debug(
+                f"Trying to log in to the Wikibase as {self.wikibase.user_name}"
+            )
+            wbi = WikibaseIntegrator(
+                login=wbi_login.Login(
+                    user=self.wikibase.user_name, password=self.wikibase.botpassword
+                ),
+            )
         item = wbi.item.new()
         if page_reference.md5hash:
             # We append the first 7 chars of the hash to the title
@@ -1093,8 +1116,10 @@ class WikibaseCrud(WcdBaseModel):
         item = self.__prepare_new_reference_item__(
             page_reference=page_reference, wikipedia_page=wikipedia_page
         )
+        from src.models.wikibase.crud.create import WikibaseCrudCreate
+
         wcc = WikibaseCrudCreate(wikibase=self.wikibase)
-        wikibase_return = wcc.upload_new_item(item=item)
+        wikibase_return: WikibaseReturn = wcc.upload_new_item(item=item)
         return wikibase_return
 
     @validate_arguments
@@ -1110,8 +1135,10 @@ class WikibaseCrud(WcdBaseModel):
         item = self.__prepare_new_website_item__(
             page_reference=page_reference, wikipedia_page=wikipedia_page
         )
+        from src.models.wikibase.crud.create import WikibaseCrudCreate
+
         wcc = WikibaseCrudCreate(wikibase=self.wikibase)
-        wikibase_return = wcc.upload_new_item(item=item)
+        wikibase_return: WikibaseReturn = wcc.upload_new_item(item=item)
         return wikibase_return
 
     @validate_arguments
@@ -1128,6 +1155,8 @@ class WikibaseCrud(WcdBaseModel):
             raise ValueError("did not get a WikipediaPage object")
         self.__prepare_reference_claim__(wikipedia_page=wikipedia_page)
         item = self.__prepare_new_wikipedia_page_item__(wikipedia_page=wikipedia_page)
+        from src.models.wikibase.crud.create import WikibaseCrudCreate
+
         wcc = WikibaseCrudCreate(wikibase=self.wikibase)
-        wikibase_return = wcc.upload_new_item(item=item)
+        wikibase_return: WikibaseReturn = wcc.upload_new_item(item=item)
         return wikibase_return

@@ -16,3 +16,7 @@ class NotLoggedInError(BaseException):
 
 class TimeParseException(BaseException):
     pass
+
+
+class WikibaseError(BaseException):
+    pass

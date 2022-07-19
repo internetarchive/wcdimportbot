@@ -22,11 +22,11 @@ logger = logging.getLogger(__name__)
 
 class WikibaseCrudCreate(WikibaseCrud):
     @validate_arguments(config=dict(arbitrary_types_allowed=True))
-    def __upload_new_item__(self, item: ItemEntity) -> str:
+    def upload_new_item(self, item: ItemEntity) -> WikibaseReturn:
         """Upload the new item to WikiCitations"""
         if item is None:
             raise ValueError("Did not get what we need")
-        if config.loglevel == logging.DEBUG:
+        if config.loglevel == logging.DEBUG and config.print_debug_json:
             logger.debug("Finished item JSON")
             console.print(item.get_json())
         try:
@@ -35,11 +35,14 @@ class WikibaseCrudCreate(WikibaseCrud):
             if config.press_enter_to_continue:
                 input("press enter to continue")
             logger.debug(f"returning new wcdqid: {new_item.id}")
-            return str(new_item.id)
+            return WikibaseReturn(item_qid=new_item.id, uploaded_now=True, item=item)
         except ModificationFailed as modification_failed:
             """Catch, extract and return the conflicting WCDQID"""
             logger.info(modification_failed)
-            wcdqid = modification_failed.get_conflicting_entity_id
+            # We pick the first one only for now
+            wcdqid = modification_failed.get_conflicting_entity_ids[0].replace(
+                "Item:", ""
+            )
             if wcdqid is None:
                 raise MissingInformationError("wcdqid was None")
-            return str(wcdqid)
+            return WikibaseReturn(item_qid=wcdqid, uploaded_now=False)

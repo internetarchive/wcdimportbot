@@ -9,6 +9,7 @@ from wikibaseintegrator.wbi_helpers import execute_sparql_query  # type: ignore
 import config
 from src.helpers import console
 from src.models.cache import Cache
+from src.models.exceptions import WikibaseError
 from src.models.wikibase import Wikibase
 from src.models.wikibase.crud.delete import WikibaseCrudDelete
 from src.models.wikibase.crud.read import WikibaseCrudRead
@@ -16,6 +17,7 @@ from src.models.wikibase.dictionaries import (
     wcd_externalid_properties,
     wcd_string_properties,
 )
+from src.models.wikibase.enums import Result
 from src.models.wikibase.sandbox_wikibase import SandboxWikibase
 from src.models.wikibase.wikicitations_wikibase import WikiCitationsWikibase
 from src.models.wikimedia.enums import WikimediaSite
@@ -30,6 +32,7 @@ class WcdImportBot(WcdBaseModel):
 
     The language code is the one used by Wikimedia Foundation"""
 
+    cache: Optional[Cache]
     language_code: str = "en"
     max_count: int = 0  # 0 means disabled
     page_title: Optional[str]
@@ -38,6 +41,15 @@ class WcdImportBot(WcdBaseModel):
     # total_number_of_references: Optional[int]
     wikibase: Wikibase = SandboxWikibase()
     wikimedia_site: WikimediaSite = WikimediaSite.WIKIPEDIA
+
+    def __flush_cache__(self):
+        if config.use_cache:
+            self.__setup_cache__()
+            self.cache.flush_database()
+        else:
+            console.print(
+                "No flushing done since the cache is not enabled in config.py"
+            )
 
     def __gather_and_print_statistics__(self):
         console.print(self.wikibase.title)
@@ -52,6 +64,27 @@ class WcdImportBot(WcdBaseModel):
                     property=getattr(self.wikibase, attribute)
                 )
                 console.print(f"Number of {attribute}: {value}")
+
+    def __rebuild_cache__(self):
+        """Flush and rebuild the cache"""
+        self.__flush_cache__()
+        if not config.use_cache:
+            console.print(
+                "No rebuilding done since the cache is not enabled in config.py"
+            )
+        if self.cache:
+            wcr = WikibaseCrudRead(wikibase=self.wikibase)
+            data = wcr.__get_all_items_and_hashes__()
+            logger.info("Rebuilding the cache")
+            count = 1
+            for entry in data:
+                self.__log_to_file__(message=str(entry), file_name="cache-content.log")
+                hash_value = entry[1]
+                wcdqid = entry[0]
+                # logger.debug(f"Inserting {hash_value}:{wcdqid} into the cache")
+                self.cache.ssdb.set_value(key=hash_value, value=wcdqid)
+                count += 1
+            console.print(f"Inserted {count} entries into the cache")
 
     @staticmethod
     def __setup_argparse_and_return_args__():
@@ -81,7 +114,12 @@ class WcdImportBot(WcdBaseModel):
 
     Example rinsing the Wikibase and the cache:
     '$ ./wcdimportbot.py --rinse'
-        """,
+
+    Example flush the cache:
+    '$ ./wcdimportbot.py --flush-cache'
+
+    Example flush and rebuild the cache:
+    '$ ./wcdimportbot.py --rebuild-cache'""",
         )
         parser.add_argument(
             "-c",
@@ -102,7 +140,12 @@ class WcdImportBot(WcdBaseModel):
             "-r",
             "--max-range",
             help="Import max range of pages",
-        )
+        ),
+        parser.add_argument(
+            "--flush-cache",
+            action="store_true",
+            help="Remove all items from the cache",
+        ),
         parser.add_argument(
             "-i",
             "--import-title",
@@ -118,6 +161,11 @@ class WcdImportBot(WcdBaseModel):
                 "and WikiCitations via SPARQL (used mainly for debugging)"
             ),
         )
+        parser.add_argument(
+            "--rebuild-cache",
+            action="store_true",
+            help="Get all imported items from SPARQL and rebuild the cache",
+        ),
         parser.add_argument(
             "--rinse",
             action="store_true",
@@ -136,6 +184,12 @@ class WcdImportBot(WcdBaseModel):
         )
         return parser.parse_args()
 
+    def __setup_cache__(self) -> None:
+        """Setup the cache"""
+        if not self.cache:
+            self.cache = Cache()
+            self.cache.connect()
+
     def __setup_wikibase_integrator_configuration__(
         self,
     ) -> None:
@@ -146,8 +200,8 @@ class WcdImportBot(WcdBaseModel):
         wbi_config.config["SPARQL_ENDPOINT_URL"] = self.wikibase.sparql_endpoint_url
 
     @validate_arguments
-    def delete_one_page(self, title: str) -> str:
-        """Deletes one page from WikiCitations"""
+    def delete_one_page(self, title: str) -> Result:
+        """Deletes one page from the Wikibase and from the cache"""
         with console.status(f"Deleting {title}"):
             from src.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
 
@@ -162,9 +216,7 @@ class WcdImportBot(WcdBaseModel):
             if config.use_cache:
                 cache = Cache()
                 cache.connect()
-                item_id = cache.check_page_and_get_wikicitations_qid(
-                    wikipedia_page=page
-                )
+                item_id = cache.check_page_and_get_wikibase_qid(wikipedia_page=page)
             else:
                 if page.md5hash is not None:
                     item_id = page.__get_wcdqid_from_hash_via_sparql__(
@@ -173,30 +225,37 @@ class WcdImportBot(WcdBaseModel):
                 else:
                     raise ValueError("page.md5hash was None")
             if item_id:
+                logger.debug(f"Found {item_id} and trying to delete it now")
                 wc = WikibaseCrudDelete(wikibase=self.wikibase)
-                wc.__delete_item__(item_id=item_id)
-                # delete from cache
-                if page.md5hash is not None:
-                    if config.use_cache:
-                        cache.delete_key(key=page.md5hash)
-                        console.print(f"Deleted {title} from the cache")
-                    console.print(f"Deleted {title} from WikiCitations")
-                    return item_id
+                result = wc.__delete_item__(item_id=item_id)
+                if result == Result.SUCCESSFUL:
+                    if page.md5hash is not None:
+                        if config.use_cache:
+                            cache.delete_key(key=page.md5hash)
+                            logger.info(f"Deleted {title} from the cache")
+                        console.print(
+                            f"Deleted {title} from {self.wikibase.__repr_name__()}"
+                        )
+                        return result
+                    else:
+                        raise ValueError("md5hash was None")
                 else:
-                    raise ValueError("md5hash was None")
+                    raise WikibaseError("Could not delete the page")
             else:
                 if config.use_cache:
-                    raise ValueError("got no item id from the cache")
+                    logger.error("Got no item id from the cache")
+                    return Result.FAILED
                 else:
-                    raise ValueError(
-                        "Got no item id from sparql, "
-                        "probably because WCDQS did not have time sync. "
-                        "Try increasing the waiting time in config.py"
-                    )
+                    logger.error("Got no item id from sparql")
+                    return Result.FAILED
 
     @validate_arguments
     def get_and_extract_page_by_title(self, title: str):
-        """Download and extract the page"""
+        """Download and extract the page and the references
+        and then upload it to Wikibase. If the page is already
+        present in the Wikibase then compare it and all its
+        references to make sure we the data is reflecting changes
+        made in Wikipedia"""
         from src.models.wikimedia.wikipedia.wikipedia_page import WikipediaPage
 
         page = WikipediaPage(
@@ -205,7 +264,7 @@ class WcdImportBot(WcdBaseModel):
             wikimedia_site=self.wikimedia_site,
         )
         page.__get_wikipedia_page_from_title__(title=title)
-        page.extract_and_upload_to_wikicitations()
+        page.extract_and_parse_and_upload_missing_items_to_wikibase()
 
     @validate_arguments
     def get_and_extract_pages_by_range(
@@ -251,7 +310,7 @@ class WcdImportBot(WcdBaseModel):
                         wikimedia_site=self.wikimedia_site,
                         wikitext=page.text,
                     )
-                    wikipedia_page.extract_and_upload_to_wikicitations()
+                    wikipedia_page.extract_and_parse_and_upload_missing_items_to_wikibase()
         else:
             for page in site.allpages(namespace=0):
                 if count >= self.max_count:
@@ -272,7 +331,7 @@ class WcdImportBot(WcdBaseModel):
                         wikitext=page.text,
                         wikibase=self.wikibase,
                     )
-                    wikipedia_page.extract_and_upload_to_wikicitations()
+                    wikipedia_page.extract_and_parse_and_upload_missing_items_to_wikibase()
 
     @validate_arguments
     def lookup_md5hash(self, md5hash: str):
@@ -315,10 +374,7 @@ class WcdImportBot(WcdBaseModel):
         """Delete all page and reference items and clear the SSDB cache"""
         wc = WikibaseCrudDelete(wikibase=self.wikibase)
         wc.delete_imported_items()
-        if config.use_cache:
-            cache = Cache()
-            cache.connect()
-            cache.flush_database()
+        self.__flush_cache__()
 
     def run(self):
         """This method handles running the bot
@@ -328,6 +384,10 @@ class WcdImportBot(WcdBaseModel):
             self.wikibase = WikiCitationsWikibase()
         if args.rinse is True:
             self.rinse_all_items_and_cache()
+        elif args.rebuild_cache:
+            self.__rebuild_cache__()
+        elif args.flush_cache:
+            self.__flush_cache__()
         elif args.import_title is not None:
             logger.info(f"importing title {args.import_title}")
             self.get_and_extract_page_by_title(title=args.import_title)

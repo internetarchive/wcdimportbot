@@ -11,13 +11,14 @@ sandbox_pwd = ""
 # Settings:
 assume_persons_without_role_are_authors = True
 debug_unsupported_templates = False
-include_url_and_first_parameter_in_hash_algorithm = True
+include_url_in_hash_algorithm = True
 loglevel = logging.ERROR
 press_enter_to_continue = False
 use_cache = False
 user_agent = "wcdimportbot 2.0.0-alpha3"
 sparql_sync_waiting_time_in_seconds = 5
 check_if_page_has_been_uploaded_via_sparql = True
+print_debug_json = False
 
 supported_templates = [
     "citation",  # see https://en.wikipedia.org/wiki/Template:Citation

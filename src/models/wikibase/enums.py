@@ -21,3 +21,13 @@ class SupportedItemType(Enum):
     WIKIPEDIA_PAGE = auto()
     WIKIPEDIA_REFERENCE = auto()
     WEBSITE_ITEM = auto()
+
+
+class Result(Enum):
+    SUCCESSFUL = auto()
+    FAILED = auto()
+
+
+class WriteRequired(Enum):
+    YES = auto()
+    NO = auto()

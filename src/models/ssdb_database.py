@@ -57,6 +57,7 @@ class SsdbDatabase(WcdBaseModel):
 
     @validate_arguments
     def set_value(self, key: str, value: str):
+        logger.debug("set_value: Running")
         if self.connection is not None:
             return self.connection.set(key, value)
         else:

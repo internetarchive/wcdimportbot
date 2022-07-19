@@ -1,3 +1,5 @@
+from pydantic import validate_arguments
+
 from src.wcd_base_model import WcdBaseModel
 
 
@@ -114,3 +116,19 @@ class Wikibase(WcdBaseModel):
             """This is the default docker Wikibase endpoint url
             Thanks to @Myst for finding/documenting it."""
             return self.query_service_url + "/proxy/wdqs/bigdata/namespace/wdq/sparql"
+
+    @validate_arguments
+    def entity_history_url(self, item_id: str):
+        if self.item_prefixed_wikibase:
+            return (
+                f"{self.wikibase_url}/w/index.php?title=Item:{item_id}&action=history"
+            )
+        else:
+            return f"{self.wikibase_url}/w/index.php?title={item_id}&action=history"
+
+    @validate_arguments
+    def entity_url(self, item_id: str):
+        if self.item_prefixed_wikibase:
+            return f"{self.wikibase_url}/wiki/Item:{item_id}"
+        else:
+            return f"{self.wikibase_url}/wiki/{item_id}"

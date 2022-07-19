@@ -66,7 +66,7 @@ class Cache(WcdBaseModel):
 
     # TODO refactor into one generic lookup function?
     @validate_arguments
-    def check_page_and_get_wikicitations_qid(
+    def check_page_and_get_wikibase_qid(
         self,
         wikipedia_page: Any,  # WikipediaPage
     ) -> Optional[str]:
@@ -85,7 +85,7 @@ class Cache(WcdBaseModel):
             raise ValueError("self.ssdb was None")
 
     @validate_arguments
-    def check_reference_and_get_wikicitations_qid(
+    def check_reference_and_get_wikibase_qid(
         self, reference: WikipediaPageReference
     ) -> Optional[str]:
         """We get binary from SSDB so we decode it"""
@@ -103,7 +103,7 @@ class Cache(WcdBaseModel):
             raise ValueError("self.ssdb was None")
 
     @validate_arguments
-    def check_website_and_get_wikicitations_qid(
+    def check_website_and_get_wikibase_qid(
         self, reference: WikipediaPageReference
     ) -> Optional[str]:
         """We get binary from SSDB so we decode it"""

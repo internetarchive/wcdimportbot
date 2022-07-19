@@ -7,46 +7,69 @@ autonumber
 actor User as user
 control wcdimportbot
 database "Cache/SPARQL" as Cache
-database WikiCitations
+database Wikibase
 entity "Wikipedia API" as wikipediaapi
 user -> wcdimportbot: Run the bot using --import
 wcdimportbot -> wikipediaapi: Get page data
 wikipediaapi -> wcdimportbot: Response
+wcdimportbot -> wcdimportbot: Generate page hash
+wcdimportbot -> wcdimportbot: Parse templates into objects
+wcdimportbot -> wcdimportbot: tokenize/hash the reference
+loop "for each hashed reference"
+    alt URL found
+        wcdimportbot -> Cache: Lookup existing WCDQID to website item
+        wcdimportbot -> wcdimportbot: Generate website item
+        alt cache enabled
+            wcdimportbot -> Cache: Insert website item hash and WCDQID
+        end
+        wcdimportbot -> Wikibase: Create new website item
+        Wikibase -> wcdimportbot: Response with new WCDQID
+        wcdimportbot -> wcdimportbot: Link to website item from the reference
+        wcdimportbot -> user: Print the URL to the new item.
+    end
+    wcdimportbot -> Cache: Lookup existing WCDQID
+    Cache -> wcdimportbot: Response
+    alt reference hash found
+        wcdimportbot -> wcdimportbot: Link to existing reference
+    end
+    alt reference hash not found
+        wcdimportbot -> wcdimportbot: Generate the reference statements
+        wcdimportbot -> Wikibase: Create new item for the reference
+        Wikibase -> wcdimportbot: Response with WCDQID
+        alt cache enabled
+            wcdimportbot -> Cache: Insert reference hash and WCDQID
+        end
+        wcdimportbot -> user: Print the URL to the new item.
+    end
+end
+wcdimportbot -> wcdimportbot: Generate the statements
 wcdimportbot -> Cache: Lookup existing WCDQID
 Cache -> wcdimportbot: Response
-alt "page hash not found"
-    wcdimportbot -> wcdimportbot: Parse templates into objects
-    loop for each reference
-        wcdimportbot -> wcdimportbot: tokenize/hash the reference
-        wcdimportbot -> Cache: Lookup existing WCDQID
-        Cache -> wcdimportbot: Response
-        alt reference hash found
-            wcdimportbot -> wcdimportbot: Link to existing reference
-        end
-        alt reference hash not found
-            alt URL found
-                wcdimportbot -> Cache: Lookup existing WCDQID to website item
-                wcdimportbot -> wcdimportbot: Generate website item
-                alt cache enabled
-                    wcdimportbot -> Cache: Insert website item hash and WCDQID
-                end
-                wcdimportbot -> WikiCitations: Create new website item
-                WikiCitations -> wcdimportbot: Response with new WCDQID
-                wcdimportbot -> wcdimportbot: Link to website item from the reference
-                wcdimportbot -> user: Print the URL to the new item.
+alt "page hash not found -> upload"
+    wcdimportbot -> Wikibase: Create new item for the page with links to all references
+    Wikibase -> wcdimportbot: Response with WCDQID
+    alt cache enabled
+        wcdimportbot -> Cache: Insert reference hash and WCDQID
+    end
+    wcdimportbot -> user: Print the URL to the new item.
+end
+alt "page hash found -> compare"
+    loop "for each reference"
+        wcdimportbot -> wcdimportbot: Check if reference was just uploaded
+        alt "not just uploaded"
+            wcdimportbot -> Wikibase: Get item data
+            wcdimportbot -> wcdimportbot: Compare all claims
+            alt "claims missing"
+                wcdimportbot -> Wikibase: Update item with new claims
             end
-            wcdimportbot -> wcdimportbot: Generate the statements
-            wcdimportbot -> WikiCitations: Create new item for the reference
-            wcdimportbot -> user: Print the URL to the new item.
-            alt cache enabled
-                wcdimportbot -> Cache: Insert reference hash and WCDQID
-            end
-            WikiCitations -> wcdimportbot: Response with WCDQID
+            wcdimportbot -> user: Print the result of the comparison.
         end
     end
-    wcdimportbot -> Cache: Insert page hash and WCDQID
-    wcdimportbot -> wcdimportbot: Generate the statements
-    wcdimportbot -> WikiCitations: Create new item for the page with links to all references
+    wcdimportbot -> Wikibase: Get page item data
+    wcdimportbot -> wcdimportbot: Compare all claims
+    alt "claims missing"
+        wcdimportbot -> Wikibase: Update item with new claims
+    end
 end
-wcdimportbot -> user: Print the URL to the new page item and the Wikipedia article.
+wcdimportbot -> user: Print the URL to the new page item and the Wikipedia article URL.
 @enduml

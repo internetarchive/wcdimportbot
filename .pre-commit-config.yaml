@@ -20,6 +20,13 @@ repos:
     args: ["--profile", "black", "--filter-files"]
     types: [python]
 
+  - id: pyupgrade
+    name: pyupgrade
+    language: system
+    entry: pyupgrade
+    args: ["--keep-runtime-typing", "--py37-plus"]
+    types: [python]
+
 # https://flake8.pycqa.org/en/latest/user/using-hooks.html
   - id: flake8
     name: flake8

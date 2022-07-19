@@ -9,7 +9,7 @@ import config
 from src.helpers import console, press_enter_to_continue
 from src.models.wikibase.crud import WikibaseCrud
 from src.models.wikibase.crud.read import WikibaseCrudRead
-from src.models.wikibase.enums import SupportedItemType
+from src.models.wikibase.enums import Result, SupportedItemType
 
 logger = logging.getLogger(__name__)
 
@@ -42,13 +42,13 @@ class WikibaseCrudDelete(WikibaseCrud):
             )
 
     @validate_arguments
-    def __delete_item__(self, item_id: str):
+    def __delete_item__(self, item_id: str) -> Result:
         if config.press_enter_to_continue:
             input(f"Do you want to delete {item_id}?")
         logger.debug(f"trying to log in to the wikibase as {self.wikibase.user_name}")
         self.__setup_wikibase_integrator_configuration__()
         try:
-            return delete_page(
+            result = delete_page(
                 title=f"Item:{item_id}",
                 # deletetalk=True,
                 login=wbi_login.Login(
@@ -57,8 +57,13 @@ class WikibaseCrudDelete(WikibaseCrud):
                     mediawiki_api_url=self.wikibase.mediawiki_api_url,
                 ),
             )
+            console.print(result)
+            if result:
+                return Result.SUCCESSFUL
+            else:
+                return Result.FAILED
         except NonExistentEntityError:
-            return
+            return Result.FAILED
 
     def delete_imported_items(self):
         """This function deletes all the imported items in WikiCitations"""

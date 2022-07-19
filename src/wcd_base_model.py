@@ -17,4 +17,3 @@ class WcdBaseModel(BaseModel):
                 pass
         with open(file_name, "a") as f:
             f.write(f"{message}\n")
-        logger.error("This reference was skipped " "because an unknown field was found")

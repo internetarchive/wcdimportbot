@@ -24,16 +24,8 @@ from wikibaseintegrator.wbi_exceptions import MWApiError  # type: ignore
 import config
 from src import Wikibase, console
 from src.models.wikibase.crud import WikibaseCrud
-from src.models.wikibase.dictionaries import (
-    wcd_archive_items,
-    wcd_externalid_properties,
-    wcd_item_properties,
-    wcd_items,
-    wcd_quantity_properties,
-    wcd_string_properties,
-    wcd_time_properties,
-    wcd_url_properties,
-)
+from src.models.wikibase.dictionaries import wcd_archive_items, wcd_items
+from src.models.wikibase.properties import Properties
 from src.models.wikibase.sandbox_wikibase import SandboxWikibase
 
 logging.basicConfig(level=config.loglevel)
@@ -75,7 +67,7 @@ class SetupNewWikibase(BaseModel):
                 f"description: {archive_description}"
             )
         except MWApiError as e:
-            archive_item_qid = e.get_conflicting_entity_id
+            archive_item_qid = e.get_conflicting_entity_ids[0]
             existing_archive_item = wbi.item.get(entity_id=archive_item_qid)
             output_text.append(
                 f'ARCHIVE_ITEM = "{existing_archive_item.id}" # '
@@ -115,7 +107,7 @@ class SetupNewWikibase(BaseModel):
                         f'{item} = "{new_item.id}" # label: {label} description: {description}'
                     )
                 except MWApiError as e:
-                    existing_item_qid = e.get_conflicting_entity_id
+                    existing_item_qid = e.get_conflicting_entity_ids[0]
                     existing_item = wbi.item.get(entity_id=existing_item_qid)
                     output_text.append(
                         f'{item} = "{existing_item.id}" # label: '
@@ -176,7 +168,7 @@ class SetupNewWikibase(BaseModel):
                         f'{item} = "{new_item.id}" # label: {label} description: {description}'
                     )
                 except MWApiError as e:
-                    existing_item_qid = e.get_conflicting_entity_id
+                    existing_item_qid = e.get_conflicting_entity_ids[0]
                     existing_item = wbi.item.get(entity_id=existing_item_qid)
                     output_text.append(
                         f'{item} = "{existing_item.id}" # label: '
@@ -222,20 +214,12 @@ class SetupNewWikibase(BaseModel):
             )
         )
         output_text = []
-        # We merge the dictionaries and loop through all entries
-        properties = {
-            **wcd_externalid_properties,
-            **wcd_item_properties,
-            **wcd_quantity_properties,
-            **wcd_string_properties,
-            **wcd_time_properties,
-            **wcd_url_properties,
-        }
-        console.print(f"Setting up {len(properties)} properties")
+        properties = Properties()
+        console.print(f"Setting up {len(properties.properties)} properties")
         count = 1
-        for entry in properties:
+        for entry in properties.properties:
             if count <= 150:
-                data: Dict[Any, Any] = properties[entry]
+                data: Dict[Any, Any] = properties.properties[entry]
                 datatype: WikibaseDatatype = data["datatype"]
                 description = data["description"]
                 label = entry.replace("_", " ").title()
@@ -255,14 +239,14 @@ class SetupNewWikibase(BaseModel):
                         f'{entry} = "{property.id}" # datatype: {datatype} description: {description}'
                     )
                 except MWApiError as e:
-                    existing_property = e.get_conflicting_entity_id
+                    existing_property = e.get_conflicting_entity_ids[0]
                     property = wbi.property.get(entity_id=existing_property)
                     output_text.append(
                         f'{entry} = "{property.id}" # datatype: {datatype} description: {property.descriptions.get(language="en")}'
                     )
                     # logger.warning(f"Got error: {e} from the Wikibase")
                 count += 1
-        if len(output_text) != len(properties):
+        if len(output_text) != len(properties.properties):
             raise ValueError("Could not setup all properties.")
         else:
             # console.print(output_text)

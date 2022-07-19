@@ -13,13 +13,15 @@ from marshmallow.exceptions import ValidationError
 from pydantic import validate_arguments
 
 import config
-from src import WikibaseCrudRead
 from src.helpers import console
 from src.helpers.template_extraction import extract_templates_and_params
 from src.models.cache import Cache
-from src.models.exceptions import MissingInformationError
+from src.models.exceptions import MissingInformationError, WikibaseError
 from src.models.wikibase import Wikibase
 from src.models.wikibase.crud.create import WikibaseCrudCreate
+from src.models.wikibase.crud.read import WikibaseCrudRead
+from src.models.wikibase.crud.update import WikibaseCrudUpdate
+from src.models.wikibase.wikibase_return import WikibaseReturn
 from src.models.wikimedia.enums import WikimediaSite
 from src.models.wikimedia.wikipedia.templates.english_wikipedia_page_reference import (
     EnglishWikipediaPageReferenceSchema,
@@ -41,11 +43,12 @@ class WikipediaPage(WcdBaseModel):
     latest_revision_id: Optional[int]
     md5hash: Optional[str]
     page_id: Optional[int]
-    references: Optional[List[WikipediaPageReference]]
+    references: List[WikipediaPageReference] = []
     title: Optional[str]
     wikibase_crud_create: Optional[WikibaseCrudCreate]
     wikibase_crud_read: Optional[WikibaseCrudRead]
-    wikicitations_qid: Optional[str]
+    wikibase_crud_update: Optional[WikibaseCrudUpdate]
+    wikibase_return: Optional[WikibaseReturn]
     wikimedia_event: Optional[
         Any  # We can't type this with WikimediaEvent because of pydantic
     ]
@@ -108,9 +111,9 @@ class WikipediaPage(WcdBaseModel):
         raise NotImplementedError("To be written")
 
     @validate_arguments
-    def __check_and_upload_reference_item_to_wikicitations_if_missing__(
+    def __check_and_upload_reference_item_to_wikibase_if_missing__(
         self, reference: WikipediaPageReference
-    ):
+    ) -> WikipediaPageReference:
         logger.debug(
             "__check_and_upload_reference_item_to_wikicitations_if_missing__: Running"
         )
@@ -119,7 +122,9 @@ class WikipediaPage(WcdBaseModel):
             wcdqid = self.__get_reference_wcdqid_from_cache__(reference=reference)
             if wcdqid:
                 logger.debug(f"Got wcdqid:{wcdqid} from the cache")
-                reference.wikicitations_qid = wcdqid
+                reference.wikibase_return = WikibaseReturn(
+                    item_qid=wcdqid, uploaded_now=False
+                )
             else:
                 logger.info(
                     f"Could not find reference with {reference.md5hash} in the cache"
@@ -132,7 +137,8 @@ class WikipediaPage(WcdBaseModel):
         if wcdqid:
             # We got a WCDQID from the cache
             logger.debug(f"Got wcdqid:{wcdqid} from the cache/SPARQL")
-            reference.wikicitations_qid = wcdqid
+            wikibase_return = WikibaseReturn(item_qid=wcdqid, uploaded_now=False)
+            reference.wikibase_return = wikibase_return
         else:
             # We did not get a WCDQID, so try uploading
             reference = self.__upload_reference_and_insert_in_the_cache_if_enabled__(
@@ -141,33 +147,7 @@ class WikipediaPage(WcdBaseModel):
         return reference
 
     @validate_arguments
-    def __get_wcdqid_from_hash_via_sparql__(self, md5hash: str) -> Optional[str]:
-        """Looks up the WCDQID in WikiCitaitons and returns
-        it if only one found and complains if more than one was found"""
-        logger.debug("__get_wcdqid_from_hash_via_sparql__: Running")
-        logger.info(f"Looking up the WCDQID via SPARQL by searching for: {md5hash}")
-        if self.wikibase_crud_read is None:
-            self.wikibase_crud_read = WikibaseCrudRead(wikibase=self.wikibase)
-        if self.wikibase_crud_read is not None:
-            wcdqids = self.wikibase_crud_read.__get_wcdqids_from_hash__(md5hash=md5hash)
-            if wcdqids is not None:
-                if len(wcdqids) > 1:
-                    raise ValueError(
-                        "Got more than one WCDQID for a hash. This should never happen"
-                    )
-                elif len(wcdqids) == 1:
-                    first_wcdqid = str(wcdqids[0])
-                    logger.debug(f"Returning WCDQID {first_wcdqid}")
-                    return first_wcdqid
-            else:
-                logger.debug("Got no match from SPARQL")
-                return None
-        else:
-            raise ValueError("self.wikicitations was None")
-        return None
-
-    @validate_arguments
-    def __check_and_upload_website_item_to_wikicitations_if_missing__(
+    def __check_and_upload_website_item_to_wikibase_if_missing__(
         self, reference: WikipediaPageReference
     ):
         """This method checks if a website item is present
@@ -199,6 +179,48 @@ class WikipediaPage(WcdBaseModel):
             )
         return reference
 
+    def __compare_and_update_all_references__(self) -> None:
+        """Compare and update all the references.
+        We assume all references have already been uploaded to Wikibase"""
+        logger.debug("__compare_and_update_all_references__: Running")
+        if not self.references:
+            console.print("No references found. Skipping comparison of references")
+            # raise MissingInformationError("self.references was empty or None")
+        else:
+            self.__setup_wikibase_crud_update__()
+            if self.wikibase_crud_update:
+                count = 0
+                total = len(self.references)
+                for reference in self.references:
+                    """We go through each reference in the object
+                    and compare it to the existing one in Wikibase"""
+                    count += 1
+                    console.print(
+                        f"Comparing reference {count}/{total} on page '{self.title}'"
+                    )
+                    self.wikibase_crud_update.compare_and_update_claims(
+                        entity=reference
+                    )
+            else:
+                raise WikibaseError()
+
+    def __compare_and_update_page__(self):
+        logger.debug("__compare_and_update_page__: Running")
+        console.print(f"Comparing the page '{self.title}'")
+        if not self.wikibase_return:
+            raise MissingInformationError(
+                "self.wikibase_return was None and is needed "
+                "to judge whether to compare or not"
+            )
+        self.__setup_wikibase_crud_update__()
+        self.wikibase_crud_update.compare_and_update_claims(entity=self)
+
+    def __compare_data_and_update__(self):
+        """We compare and update all references and the page data"""
+        logger.debug("__compare_data_and_update__: Running")
+        self.__compare_and_update_all_references__()
+        self.__compare_and_update_page__()
+
     def __extract_and_parse_references__(self):
         logger.info("Extracting references now")
         # if self.wikimedia_event is not None:
@@ -213,17 +235,27 @@ class WikipediaPage(WcdBaseModel):
         self.__parse_templates__()
         self.__print_hash_statistics__()
 
-    @validate_arguments
-    def __fetch_page_data__(self, title: str) -> None:
+    def __fetch_page_data__(self, title: str = "") -> None:
         """This fetches metadata and the latest revision id
         and date from the MediaWiki REST v1 API if needed"""
+        # TODO refactor this into new class?
+        logger.debug("__fetch_page_data__: Running")
         if (
-            self.latest_revision_id
-            or self.latest_revision_date
-            or self.wikitext
-            or self.page_id
-        ) is None:
-            self.title = title
+            not self.latest_revision_id
+            or not self.latest_revision_date
+            or not self.wikitext
+            or not self.page_id
+        ):
+            if not title and self.title:
+                title = self.title
+            elif not title and not self.title:
+                raise MissingInformationError(
+                    "Both self.title and title are empty or None"
+                )
+            else:
+                self.title = title
+            # This is needed to support e.g. https://en.wikipedia.org/wiki/Musk%C3%B6_naval_base
+            title = title.replace(" ", "_")
             url = f"https://en.wikipedia.org/w/rest.php/v1/page/{title}"
             headers = {"User-Agent": config.user_agent}
             response = requests.get(url, headers=headers)
@@ -303,6 +335,12 @@ class WikipediaPage(WcdBaseModel):
     def __generate_hash__(self):
         """We generate a md5 hash of the page_reference as a unique identifier for any given page_reference in a Wikipedia page
         We choose md5 because it is fast https://www.geeksforgeeks.org/difference-between-md5-and-sha1/"""
+        logger.debug(
+            f"Generating hash based on: "
+            f"{self.wikibase.title}{self.language_code}{self.page_id}"
+        )
+        if not self.page_id:
+            raise MissingInformationError("self.page_id was None")
         self.md5hash = hashlib.md5(
             f"{self.wikibase.title}{self.language_code}{self.page_id}".encode()
         ).hexdigest()
@@ -315,7 +353,7 @@ class WikipediaPage(WcdBaseModel):
         if self.cache is None:
             self.__setup_cache__()
         if self.cache is not None:
-            wcdqid = self.cache.check_reference_and_get_wikicitations_qid(
+            wcdqid = self.cache.check_reference_and_get_wikibase_qid(
                 reference=reference
             )
         else:
@@ -324,15 +362,39 @@ class WikipediaPage(WcdBaseModel):
         return wcdqid
 
     @validate_arguments
+    def __get_wcdqid_from_hash_via_sparql__(self, md5hash: str) -> Optional[str]:
+        """Looks up the WCDQID in WikiCitaitons and returns
+        it if only one found and complains if more than one was found"""
+        logger.debug("__get_wcdqid_from_hash_via_sparql__: Running")
+        logger.info(f"Looking up the WCDQID via SPARQL by searching for: {md5hash}")
+        if self.wikibase_crud_read is None:
+            self.wikibase_crud_read = WikibaseCrudRead(wikibase=self.wikibase)
+        if self.wikibase_crud_read is not None:
+            wcdqids = self.wikibase_crud_read.__get_wcdqids_from_hash__(md5hash=md5hash)
+            if wcdqids is not None:
+                if len(wcdqids) > 1:
+                    raise ValueError(
+                        "Got more than one WCDQID for a hash. This should never happen"
+                    )
+                elif len(wcdqids) == 1:
+                    first_wcdqid = str(wcdqids[0])
+                    logger.debug(f"Returning WCDQID {first_wcdqid}")
+                    return first_wcdqid
+            else:
+                logger.debug("Got no match from SPARQL")
+                return None
+        else:
+            raise ValueError("self.wikicitations was None")
+        return None
+
+    @validate_arguments
     def __get_website_wcdqid_from_cache__(
         self, reference: WikipediaPageReference
     ) -> Optional[str]:
         if self.cache is None:
             self.__setup_cache__()
         if self.cache is not None:
-            wcdqid = self.cache.check_website_and_get_wikicitations_qid(
-                reference=reference
-            )
+            wcdqid = self.cache.check_website_and_get_wikibase_qid(reference=reference)
         else:
             raise ValueError("self.cache was None")
         logger.debug(f"result from the cache:{wcdqid}")
@@ -343,9 +405,6 @@ class WikipediaPage(WcdBaseModel):
         """Get the page from the Wikimedia site"""
         logger.info("Fetching the page data")
         self.__fetch_page_data__(title=title)
-
-        # this id is useful when talking to WikipediaCitations because it is unique
-        # self.page_id = int(self.pywikibot_page.pageid)
 
     @validate_arguments
     def __insert_reference_in_cache__(
@@ -379,9 +438,7 @@ class WikipediaPage(WcdBaseModel):
             if self.cache is None:
                 self.__setup_cache__()
             if self.cache is not None:
-                wcdqid = self.cache.check_page_and_get_wikicitations_qid(
-                    wikipedia_page=self
-                )
+                wcdqid = self.cache.check_page_and_get_wikibase_qid(wikipedia_page=self)
             else:
                 raise ValueError("self.cache was None")
             if wcdqid is None:
@@ -389,6 +446,9 @@ class WikipediaPage(WcdBaseModel):
                 return False
             else:
                 logger.debug("Page found in the cache")
+                self.wikibase_return = WikibaseReturn(
+                    item_qid=wcdqid, uploaded_now=False
+                )
                 return True
         else:
             if config.check_if_page_has_been_uploaded_via_sparql:
@@ -400,7 +460,9 @@ class WikipediaPage(WcdBaseModel):
                 else:
                     raise ValueError("self.md5hash was None")
                 if wcdqid is not None:
-                    self.wikicitations_qid = wcdqid
+                    self.wikibase_return = WikibaseReturn(
+                        item_qid=wcdqid, uploaded_now=False
+                    )
                     return True
                 else:
                     return False
@@ -418,7 +480,6 @@ class WikipediaPage(WcdBaseModel):
         logger.info(
             f"Parsing {number_of_templates} templates from {self.title}, see {self.url}"
         )
-        self.references = []
         for template_name, content in template_tuples:
             # logger.debug(f"working on {template_name}")
             if template_name.lower() in config.supported_templates:
@@ -435,11 +496,11 @@ class WikipediaPage(WcdBaseModel):
                     )
                 except ValidationError as error:
                     logger.debug(f"Validation error: {error}")
-                    self.__log_to_file__(
-                        message=str(error), file_name="schema_errors.log"
-                    )
+                    schema_log_file = "schema_errors.log"
+                    self.__log_to_file__(message=str(error), file_name=schema_log_file)
                     logger.error(
-                        "This reference was skipped because an unknown field was found"
+                        f"This reference was skipped because an unknown "
+                        f"field was found. See the file '{schema_log_file}' for details"
                     )
                     reference = None
                 # DISABLED partial loading because it does not work :/
@@ -497,25 +558,61 @@ class WikipediaPage(WcdBaseModel):
                 wikibase=self.wikibase,
             )
 
+    def __setup_wikibase_crud_update__(self):
+        if not self.wikibase_crud_update:
+            self.wikibase_crud_update = WikibaseCrudUpdate(
+                language_code=self.language_code,
+                wikibase=self.wikibase,
+            )
+        self.wikibase_crud_update.wikipedia_page = self
+
+    def __upload_page_and_references__(self):
+        console.print(f"Importing page '{self.title}'")
+        self.__setup_wikibase_crud_create__()
+        self.wikibase_return = (
+            self.wikibase_crud_create.prepare_and_upload_wikipedia_page_item(
+                wikipedia_page=self,
+            )
+        )
+        if config.use_cache:
+            if self.wikibase_return is None:
+                raise ValueError("wcdqid was None")
+            self.cache.add_page(
+                wikipedia_page=self, wcdqid=self.wikibase_return.item_qid
+            )
+        if self.wikibase_return.uploaded_now:
+            console.print(
+                f"Finished uploading {self.title} to Wikibase, "
+                f"see {self.url} and {self.wikibase_url}"
+            )
+        else:
+            console.print(
+                f"{self.title} already exists in {self.wikibase.__repr_name__()}, "
+                f"see {self.url} and {self.wikibase_url}"
+            )
+            raise ValueError("this should never happen")
+
     @validate_arguments
-    def __upload_reference_to_wikicitations__(
+    def __upload_reference_to_wikibase__(
         self, reference: WikipediaPageReference
-    ) -> str:
-        """This method tries to upload the reference to WikiCitations
+    ) -> WikibaseReturn:
+        """This method tries to upload the reference to Wikibase
         and returns the WCDQID either if successful upload or from the
         Wikibase error if an item with the exact same label/hash already exists."""
         logger.debug("__upload_reference_to_wikicitations__: Running")
         if self.wikibase_crud_create is None:
             self.__setup_wikibase_crud_create__()
         if self.wikibase_crud_create:
-            wcdqid = self.wikibase_crud_create.prepare_and_upload_reference_item(
-                page_reference=reference, wikipedia_page=self
+            wikibase_return = (
+                self.wikibase_crud_create.prepare_and_upload_reference_item(
+                    page_reference=reference, wikipedia_page=self
+                )
             )
-            if wcdqid:
-                return str(wcdqid)
+            if wikibase_return:
+                return wikibase_return
             else:
                 raise MissingInformationError(
-                    "Got None instead of WCDQID when trying to upload to WikiCitations"
+                    "Got None instead of WCDQID when trying to upload to Wikibase"
                 )
         else:
             raise ValueError("self.wikibase_crud_create was None")
@@ -525,28 +622,26 @@ class WikipediaPage(WcdBaseModel):
         self, reference: WikipediaPageReference
     ) -> WikipediaPageReference:
         # Here we get the reference back with WCDQID
-        wcdqid = self.__upload_reference_to_wikicitations__(reference=reference)
+        wikibase_return = self.__upload_reference_to_wikibase__(reference=reference)
         if config.use_cache:
-            if not wcdqid or not reference.md5hash:
+            if not wikibase_return or not reference.md5hash:
                 raise MissingInformationError("hash or WCDQID was None")
-            self.__insert_reference_in_cache__(reference=reference, wcdqid=wcdqid)
-        reference.wikicitations_qid = wcdqid
+            self.__insert_reference_in_cache__(
+                reference=reference, wcdqid=wikibase_return.item_qid
+            )
+        reference.wikibase_return = wikibase_return
         return reference
 
     @validate_arguments
-    def __upload_website_to_wikicitations__(
+    def __upload_website_to_wikibase__(
         self, reference: WikipediaPageReference
-    ) -> str:
+    ) -> WikibaseReturn:
         """This is a lower level method that only handles uploading the website item"""
         if self.wikibase_crud_create is None:
             self.__setup_wikibase_crud_create__()
         if self.wikibase_crud_create is not None:
-            # from src.models.wikibase.crud import WikiCitations
-            # self.wikicitations: WikiCitations
-            return str(
-                self.wikibase_crud_create.prepare_and_upload_website_item(
-                    page_reference=reference, wikipedia_page=self
-                )
+            return self.wikibase_crud_create.prepare_and_upload_website_item(
+                page_reference=reference, wikipedia_page=self
             )
         else:
             raise ValueError("self.wikicitations was None")
@@ -555,7 +650,8 @@ class WikipediaPage(WcdBaseModel):
     def __upload_website_and_insert_in_the_cache_if_enabled__(
         self, reference: WikipediaPageReference
     ) -> WikipediaPageReference:
-        wcdqid = self.__upload_website_to_wikicitations__(reference=reference)
+        wikibase_return = self.__upload_website_to_wikibase__(reference=reference)
+        wcdqid = wikibase_return.item_qid
         if config.use_cache:
             if wcdqid is None:
                 raise ValueError("WCDQID was None")
@@ -573,7 +669,8 @@ class WikipediaPage(WcdBaseModel):
         return reference
 
     def __upload_references_and_websites_if_missing__(self):
-        """Go through each reference and upload if missing to WikiCitations"""
+        """Go through each reference and upload if missing to Wikibase"""
+        logger.debug("__upload_references_and_websites_if_missing__: Running")
         updated_references = []
         count = 1
         total = len(self.references)
@@ -585,62 +682,45 @@ class WikipediaPage(WcdBaseModel):
                     f"with link to {reference.first_level_domain_of_url}"
                 ):
                     # Here we get the reference with the first_level_domain_of_url WCDQID back
-                    reference = self.__check_and_upload_website_item_to_wikicitations_if_missing__(
-                        reference=reference
+                    reference = (
+                        self.__check_and_upload_website_item_to_wikibase_if_missing__(
+                            reference=reference
+                        )
                     )
             if reference.has_hash:
                 with console.status(f"Creating the reference item itself"):
                     # Here we get the reference with its own WCDQID back
-                    reference = self.__check_and_upload_reference_item_to_wikicitations_if_missing__(
-                        reference=reference
+                    reference = (
+                        self.__check_and_upload_reference_item_to_wikibase_if_missing__(
+                            reference=reference
+                        )
                     )
             updated_references.append(reference)
             count += 1
         self.references = updated_references
 
-    def extract_and_upload_to_wikicitations(self):
+    def extract_and_parse_and_upload_missing_items_to_wikibase(self) -> None:
         """Extract the references and upload first
-        the references and then the page to WikiCitations"""
-        # First we check if this page has already been uploaded
-        self.__generate_hash__()
-        if not self.__page_has_already_been_uploaded__():
-            console.print(f"Importing page '{self.title}'")
-            # logger.info("This page is missing from WikiCitations")
-            self.__setup_wikibase_crud_create__()
-            # with console.status("Downloading page data"):
-            self.__fetch_page_data__(title=self.title)
-            # extract references and create items for the missing ones first
-            # with console.status("Extracting information from the references"):
-            self.__extract_and_parse_references__()
-            self.__upload_references_and_websites_if_missing__()
-            # upload a new item for the page with links to all the page_reference items
-            self.wikicitations_qid = (
-                self.wikibase_crud_create.prepare_and_upload_wikipedia_page_item(
-                    wikipedia_page=self,
-                )
-            )
-            if config.use_cache:
-                if self.wikicitations_qid is None:
-                    raise ValueError("wcdqid was None")
-                self.cache.add_page(wikipedia_page=self, wcdqid=self.wikicitations_qid)
-            console.print(
-                f"Finished uploading {self.title} to WikiCitations, "
-                f"see {self.url} and {self.wikicitations_url}"
-            )
-        else:
-            console.print(
-                f"This page has already been uploaded to WikiCitations, "
-                f"see {self.url} and {self.wikicitations_url}"
-            )
+        the references and then the page to Wikibase
 
-    # def __match_subjects__(self):
-    #     logger.info(f"Matching subjects from {len(self.dois) - self.number_of_missing_dois} DOIs")
-    #     [doi.wikidata_scientific_item.crossref_engine.work.match_subjects_to_qids() for doi in self.dois
-    #      if (
-    #              doi.wikidata_scientific_item.doi_found_in_wikidata and
-    #              doi.wikidata_scientific_item.crossref_engine is not None and
-    #              doi.wikidata_scientific_item.crossref_engine.work is not None
-    #      )]
+        First we fetch the page data and generate the hash,
+        then we setup the Wikibase and extract and parse
+        the references.
+
+        Then we upload the references and websites if missing
+        and lastly we either upload the page or if missing
+        compare and upload any missing claims."""
+        logger.debug("extract_and_upload_to_wikibase: Running")
+        self.__fetch_page_data__()
+        self.__generate_hash__()
+        self.__setup_wikibase_crud_create__()
+        self.__extract_and_parse_references__()
+        self.__upload_references_and_websites_if_missing__()
+        if not self.__page_has_already_been_uploaded__():
+            self.__upload_page_and_references__()
+        else:
+            self.__compare_data_and_update__()
+
     # def __get_title_from_event__(self):
     #     self.title = self.wikimedia_event.page_title
     #     if self.title is None or self.title == "":

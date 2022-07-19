@@ -16,6 +16,7 @@ from src.helpers.template_extraction import extract_templates_and_params
 from src.models.exceptions import MissingInformationError, MoreThanOneNumberError
 from src.models.person import Person
 from src.models.wikibase import Wikibase
+from src.models.wikibase.wikibase_return import WikibaseReturn
 from src.models.wikimedia.wikipedia.templates.enums import (
     EnglishWikipediaTemplatePersonRole,
 )
@@ -70,7 +71,7 @@ class WikipediaPageReference(WcdBaseModel):
     persons_without_role: Optional[List[Person]]
     template_name: str  # We use this to keep track of which template the information came from
     translators_list: Optional[List[Person]]
-    wikicitations_qid: Optional[str]
+    wikibase_return: Optional[WikibaseReturn]
     wikidata_qid: Optional[str]
     wikibase: Optional[Wikibase]
 
@@ -445,13 +446,15 @@ class WikipediaPageReference(WcdBaseModel):
         return f"https://en.wikipedia.org/wiki/Template:{self.template_name}"
 
     @property
-    def wikicitations_url(self) -> str:
-        if self.wikibase:
-            return (
-                f"{self.wikibase.wikibase_url}/" f"wiki/Item:{self.wikicitations_qid}"
-            )
-        else:
+    def wikibase_url(self) -> str:
+        if not self.wikibase:
             raise ValueError("self.wikibase was None")
+        if not self.wikibase_return:
+            raise ValueError("self.wikibase_return was None")
+        return (
+            f"{self.wikibase.wikibase_url}/"
+            f"wiki/Item:{self.wikibase_return.item_qid}"
+        )
 
     def __clean_wiki_markup_from_strings__(self):
         """We clean away [[ and ]]
@@ -581,21 +584,32 @@ class WikipediaPageReference(WcdBaseModel):
         """We generate a md5 hash of the page_reference as a unique identifier for any given page_reference in a Wikipedia page
         We choose md5 because it is fast https://www.geeksforgeeks.org/difference-between-md5-and-sha1/"""
         str2hash = None
-        if self.doi is not None:
+        # TODO decide if we really trust doi to be unique.
+        #  See https://www.wikidata.org/wiki/Property_talk:P356
+        # In WD there are as of 2022-07-11 25k violations here.
+        # Most are due to bad data at PubMed
+        # see https://www.wikidata.org/wiki/Wikidata:Database_reports/Constraint_violations/P356#Unique_value
+        # and https://twitter.com/DennisPriskorn/status/1546475347851591680
+        if self.wikidata_qid:
+            # This is the external id we trust the most.
+            str2hash = self.wikidata_qid
+        if self.doi:
             str2hash = self.doi
-        elif self.pmid is not None:
+        elif self.pmid:
             str2hash = self.pmid
-        elif self.isbn is not None:
+        elif self.isbn:
             # We strip the dashes before hashing
             str2hash = self.isbn.replace("-", "")
-        elif self.oclc is not None:
+        # TODO decide if we really trust oclc to be unique
+        # See https://www.wikidata.org/wiki/Property_talk:P243
+        elif self.oclc:
             str2hash = self.oclc
-        elif self.url is not None:
-            if config.include_url_and_first_parameter_in_hash_algorithm:
+        elif self.url:
+            if config.include_url_in_hash_algorithm:
                 str2hash = self.url
-        elif self.first_parameter is not None:
-            if config.include_url_and_first_parameter_in_hash_algorithm:
-                str2hash = self.first_parameter
+        # elif self.first_parameter:
+        #     if config.include_url_in_hash_algorithm:
+        #         str2hash = self.first_parameter
 
         # DISABLED template specific hashing for now because it is error
         # prone and does not make it easy to avoid duplicates
@@ -1013,7 +1027,7 @@ class WikipediaPageReference(WcdBaseModel):
     def __parse_persons__(self) -> None:
         """Parse all person related data into Person objects"""
         # find all the attributes but exclude the properties as they lead to weird errors
-        properties = ["has_hash", "isodate", "template_url", "wikicitations_url"]
+        properties = ["has_hash", "isodate", "template_url", "wikibase_url"]
         attributes = [
             a
             for a in dir(self)
